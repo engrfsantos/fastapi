@@ -55,47 +55,46 @@ def get_posts():
     posts = cursor.fetchall()
     return {"Posts" : posts}
 
+@app.post("/posts", status_code=status.HTTP_201_CREATED)
+def create_post(post: Post):
+    #cursor.execute(f"""INSERT INTO POSTS (title, content) VALUES ('{post.title}','{post.content}')""")
+    cursor.execute("""INSERT INTO POSTS (title, content, published) VALUES (%s, %s, %s) RETURNING * """,(post.title, post.content, post.published))  
+    new_post = cursor.fetchone()
+    conn.commit()
+    return{"New Post" : new_post}
+
+@app.get("/posts/{id}")
+def read_post(id:int):
+    #cursor.execute(f"""select * from posts where id = {id} """)
+    cursor.execute("""select * from posts where id = %s """, (str(id),))
+    post = cursor.fetchone()
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
+    return {"Post": f"Este é o Post: {post}"}
+
+
+@app.delete("/delete/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def post_delete(id: int):
+    cursor.execute("""DELETE FROM posts where id = %s RETURNING * """, (str(id),))
+    deleted_post = cursor.fetchone()
+    conn.commit()    
+    if deleted_post == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} doesn't exists")  
+      
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    
+@app.put("/posts/{id}")
+def update_post(id:int, post: Post):
+    cursor.execute("""update posts set title=%s, content=%s, published = %s where id = %s returning * """, (post.title, post.content,post.published,(str(id)),))
+    update_cursor = cursor.fetchone()
+    if update_cursor == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
+    conn.commit()
+    return {"date": f"Postagem Atualizada: {update_cursor}"}
+
 @app.get("/posts/lasted")
 def get_lasted():
     print("Entrou na função Lasted")
     post = my_posts[len(my_posts)-1]
     print("Este é o post" , post)
     return {"Last Post" : post}
-
-@app.get("/posts/{id}")
-def read_post(id:int):
-    post = find_post(id)
-    if not post:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
-    return {"Post": f"Este é o Post: {post}"}
-
-@app.post("/createpost", status_code=status.HTTP_201_CREATED)
-def post_mensagem(post: Post):
-    new_post = post.dict()
-    new_post['id'] = randrange(0,1000000000)
-    my_posts.append(new_post)
-    return{"New Post" : post}
-
-@app.delete("/delete/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def post_delete(id: int):
-    # deletando o post
-    # encontra o índice na matriz requerido por ID
-    # my_posts.pop(id)
-    index = find_index_post(id)
-    if index == None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"o id {id} não foi encontrado")
-        
-    my_posts.pop(index)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-    
-    
-@app.put("/posts/{id}")
-def update_post(id:int, post: Post):
-    print(id, post)
-    index = find_index_post(id)
-    if index == None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
-    post_dict = post.dict()
-    post_dict["id"] = id
-    my_posts[index] = post_dict
-    return {"date": f"Postagem Atualizada: {post_dict}"}
