@@ -1,100 +1,55 @@
-from fastapi import FastAPI, Response, status, HTTPException
-from fastapi.params import Body
-from pydantic import BaseModel
-from typing import Optional
-from random import randrange
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import time
+
+from typing import List
+
+from sqlalchemy import *
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy.orm import Session
+
+from . import crud, models, schemas
+from .database import SessionLocal, engine
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-class Post(BaseModel):
-    title: str
-    content: str
-    published: bool = True
-    rate: Optional[int] = None
-    
-while True:
-        
+# Dependency
+def get_db():
+    db = SessionLocal()
     try:
-        conn = psycopg2.connect(host='localhost', database='fastapi', 
-                                user='postgres', password='postgres', port='5441',
-                                cursor_factory=RealDictCursor)
-        cursor = conn.cursor()
-        print('Banco de Dados Conectado corretamente')
-        break
-    except Exception as error:
-        print('Erro na conexão do Banco de Dados')
-        print('Erro Foi:' , error)
-        time.sleep(2)
+        yield db
+    finally:
+        db.close()
+
+@app.post("/users/", response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    db_user = crud.get_user_by_email(db, email=user.email)
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return crud.create_user(db=db, user=user)
 
 
-my_posts = [{"title":"primeiro título","content":"primeiro conteúdo","id":1},
-            {"title":"segundo título","content":"segundo conteúdo","id":2},
-            {"title":"terceiro título","content":"terceiro conteúdo","id":3}
-            ]
-
-def find_post(id):
-    for p in my_posts:
-        if p["id"] == id:
-            return p
-        
-def find_index_post(id):
-    for i, p in enumerate(my_posts):
-        if p['id'] == id:
-            return i
-
-@app.get("/")
-def read_root():
-    return {"Hello": "Fast API"}
-
-@app.get("/posts")
-def get_posts():
-    cursor.execute("""SELECT * FROM POSTS""")
-    posts = cursor.fetchall()
-    return {"Posts" : posts}
-
-@app.post("/posts", status_code=status.HTTP_201_CREATED)
-def create_post(post: Post):
-    #cursor.execute(f"""INSERT INTO POSTS (title, content) VALUES ('{post.title}','{post.content}')""")
-    cursor.execute("""INSERT INTO POSTS (title, content, published) VALUES (%s, %s, %s) RETURNING * """,(post.title, post.content, post.published))  
-    new_post = cursor.fetchone()
-    conn.commit()
-    return{"New Post" : new_post}
-
-@app.get("/posts/{id}")
-def read_post(id:int):
-    #cursor.execute(f"""select * from posts where id = {id} """)
-    cursor.execute("""select * from posts where id = %s """, (str(id),))
-    post = cursor.fetchone()
-    if not post:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
-    return {"Post": f"Este é o Post: {post}"}
+@app.get("/users/", response_model=list[schemas.User])
+def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    users = crud.get_users(db, skip=skip, limit=limit)
+    return users
 
 
-@app.delete("/delete/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def post_delete(id: int):
-    cursor.execute("""DELETE FROM posts where id = %s RETURNING * """, (str(id),))
-    deleted_post = cursor.fetchone()
-    conn.commit()    
-    if deleted_post == None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with id {id} doesn't exists")  
-      
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-    
-@app.put("/posts/{id}")
-def update_post(id:int, post: Post):
-    cursor.execute("""update posts set title=%s, content=%s, published = %s where id = %s returning * """, (post.title, post.content,post.published,(str(id)),))
-    update_cursor = cursor.fetchone()
-    if update_cursor == None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post with ID {id} Not Found")
-    conn.commit()
-    return {"date": f"Postagem Atualizada: {update_cursor}"}
+@app.get("/users/{user_id}", response_model=schemas.User)
+def read_user(user_id: int, db: Session = Depends(get_db)):
+    db_user = crud.get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return db_user
 
-@app.get("/posts/lasted")
-def get_lasted():
-    print("Entrou na função Lasted")
-    post = my_posts[len(my_posts)-1]
-    print("Este é o post" , post)
-    return {"Last Post" : post}
+
+@app.post("/users/{user_id}/items/", response_model=schemas.Item)
+def create_item_for_user(
+    user_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)
+):
+    return crud.create_user_item(db=db, item=item, user_id=user_id)
+
+
+@app.get("/items/", response_model=list[schemas.Item])
+def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    items = crud.get_items(db, skip=skip, limit=limit)
+    return items
